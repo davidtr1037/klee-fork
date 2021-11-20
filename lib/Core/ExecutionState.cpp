@@ -303,8 +303,9 @@ bool ExecutionState::merge(const ExecutionState &b) {
            "objects mutated but not writable in merging state");
     assert(otherOS);
 
+    /* TODO: check capacity compatability */
     ObjectState *wos = addressSpace.getWriteable(mo, os);
-    for (unsigned i=0; i<mo->size; i++) {
+    for (unsigned i=0; i<mo->capacity; i++) {
       ref<Expr> av = wos->read8(i);
       ref<Expr> bv = otherOS->read8(i);
       wos->write(i, SelectExpr::create(inA, av, bv));

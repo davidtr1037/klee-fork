@@ -76,12 +76,12 @@ void MemoryObject::getAllocInfo(std::string &result) const {
 ObjectState::ObjectState(const MemoryObject *mo)
   : copyOnWriteOwner(0),
     object(mo),
-    concreteStore(new uint8_t[mo->size]),
+    concreteStore(new uint8_t[mo->capacity]),
     concreteMask(0),
     flushMask(0),
     knownSymbolics(0),
     updates(0, 0),
-    size(mo->size),
+    size(mo->capacity),
     readOnly(false) {
   if (!UseConstantArrays) {
     static unsigned id = 0;
@@ -96,12 +96,12 @@ ObjectState::ObjectState(const MemoryObject *mo)
 ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
   : copyOnWriteOwner(0),
     object(mo),
-    concreteStore(new uint8_t[mo->size]),
+    concreteStore(new uint8_t[mo->capacity]),
     concreteMask(0),
     flushMask(0),
     knownSymbolics(0),
     updates(array, 0),
-    size(mo->size),
+    size(mo->capacity),
     readOnly(false) {
   makeSymbolic();
   memset(concreteStore, 0, size);
@@ -135,7 +135,7 @@ ObjectState::~ObjectState() {
 }
 
 ArrayCache *ObjectState::getArrayCache() const {
-  assert(object && "object was NULL");
+  assert(!object.isNull() && "object was NULL");
   return object->parent->getArrayCache();
 }
 
@@ -149,7 +149,7 @@ const UpdateList &ObjectState::getUpdates() const {
     // FIXME: We should be able to do this more efficiently, we just need to be
     // careful to get the interaction with the cache right. In particular we
     // should avoid creating UpdateNode instances we never use.
-    unsigned NumWrites = updates.head ? updates.head->getSize() : 0;
+    unsigned NumWrites = updates.head.isNull() ? 0 : updates.head->getSize();
     std::vector< std::pair< ref<Expr>, ref<Expr> > > Writes(NumWrites);
     const auto *un = updates.head.get();
     for (unsigned i = NumWrites; i != 0; un = un->next.get()) {
@@ -219,7 +219,7 @@ void ObjectState::makeConcrete() {
 }
 
 void ObjectState::makeSymbolic() {
-  assert(!updates.head &&
+  assert(updates.head.isNull() &&
          "XXX makeSymbolic of objects with symbolic values is unsupported");
 
   // XXX simplify this, can just delete various arrays I guess

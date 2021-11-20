@@ -845,7 +845,8 @@ void Executor::initializeGlobalObjects(ExecutionState &state) {
         klee_error("Unable to load symbol(%.*s) while initializing globals",
                    static_cast<int>(v.getName().size()), v.getName().data());
       }
-      for (unsigned offset = 0; offset < mo->size; offset++) {
+      /* TODO: the size of a global must be concrete */
+      for (unsigned offset = 0; offset < mo->getFixedSize(); offset++) {
         os->write8(offset, static_cast<unsigned char *>(addr)[offset]);
       }
     } else if (v.hasInitializer()) {
@@ -4221,7 +4222,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   if (success) {
     const MemoryObject *mo = op.first;
 
-    if (MaxSymArraySize && mo->size >= MaxSymArraySize) {
+    if (MaxSymArraySize && mo->capacity >= MaxSymArraySize) {
       address = toConstant(state, address, "max-sym-array-size");
     }
     
@@ -4328,7 +4329,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
     while (!state.arrayNames.insert(uniqueName).second) {
       uniqueName = name + "_" + llvm::utostr(++id);
     }
-    const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
+    const Array *array = arrayCache.CreateArray(uniqueName, mo->capacity);
     bindObjectInState(state, mo, false, array);
     state.addSymbolic(mo, array);
     
@@ -4336,6 +4337,8 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
       seedMap.find(&state);
     if (it!=seedMap.end()) { // In seed mode we need to add this as a
                              // binding.
+      assert(mo->hasFixedSize());
+      unsigned size = mo->getFixedSize();
       for (std::vector<SeedInfo>::iterator siit = it->second.begin(), 
              siie = it->second.end(); siit != siie; ++siit) {
         SeedInfo &si = *siit;
@@ -4344,20 +4347,20 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
         if (!obj) {
           if (ZeroSeedExtension) {
             std::vector<unsigned char> &values = si.assignment.bindings[array];
-            values = std::vector<unsigned char>(mo->size, '\0');
+            values = std::vector<unsigned char>(size, '\0');
           } else if (!AllowSeedExtension) {
             terminateStateOnError(state, "ran out of inputs during seeding",
                                   User);
             break;
           }
         } else {
-          if (obj->numBytes != mo->size &&
+          if (obj->numBytes != size &&
               ((!(AllowSeedExtension || ZeroSeedExtension)
-                && obj->numBytes < mo->size) ||
-               (!AllowSeedTruncation && obj->numBytes > mo->size))) {
+                && obj->numBytes < size) ||
+               (!AllowSeedTruncation && obj->numBytes > size))) {
 	    std::stringstream msg;
 	    msg << "replace size mismatch: "
-		<< mo->name << "[" << mo->size << "]"
+		<< mo->name << "[" << size << "]"
 		<< " vs " << obj->name << "[" << obj->numBytes << "]"
 		<< " in test\n";
 
@@ -4366,9 +4369,9 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
           } else {
             std::vector<unsigned char> &values = si.assignment.bindings[array];
             values.insert(values.begin(), obj->bytes, 
-                          obj->bytes + std::min(obj->numBytes, mo->size));
+                          obj->bytes + std::min(obj->numBytes, size));
             if (ZeroSeedExtension) {
-              for (unsigned i=obj->numBytes; i<mo->size; ++i)
+              for (unsigned i=obj->numBytes; i<size; ++i)
                 values.push_back('\0');
             }
           }
@@ -4376,15 +4379,17 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
       }
     }
   } else {
+    assert(mo->hasFixedSize());
+    unsigned size = mo->getFixedSize();
     ObjectState *os = bindObjectInState(state, mo, false);
     if (replayPosition >= replayKTest->numObjects) {
       terminateStateOnError(state, "replay count mismatch", User);
     } else {
       KTestObject *obj = &replayKTest->objects[replayPosition++];
-      if (obj->numBytes != mo->size) {
+      if (obj->numBytes != size) {
         terminateStateOnError(state, "replay size mismatch", User);
       } else {
-        for (unsigned i=0; i<mo->size; i++)
+        for (unsigned i=0; i<size; i++)
           os->write8(i, obj->bytes[i]);
       }
     }

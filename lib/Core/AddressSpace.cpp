@@ -54,17 +54,30 @@ ObjectState *AddressSpace::getWriteable(const MemoryObject *mo,
 
 /// 
 
-bool AddressSpace::resolveOne(const ref<ConstantExpr> &addr, 
+// Check if the provided address is between start and end of the object
+// [mo->address, mo->address + mo->size) or the object is a 0-sized object.
+bool AddressSpace::checkResolvedObject(uint64_t address,
+                                       const MemoryObject *mo) const {
+  if (mo->hasFixedSize()) {
+    unsigned fixedSize = mo->getFixedSize();
+    return ((fixedSize == 0 && address == mo->address) || \
+            (address - mo->address < fixedSize));
+  } else {
+    /* the capacity is non-zero,
+     * so if the symbolic size must be zero,
+     * this memory object will be still resolved (as in the concrete case).
+     */
+    return address - mo->address < mo->capacity;
+  }
+}
+
+bool AddressSpace::resolveOne(const ref<ConstantExpr> &addr,
                               ObjectPair &result) const {
   uint64_t address = addr->getZExtValue();
   MemoryObject hack(address);
 
   if (const auto res = objects.lookup_previous(&hack)) {
-    const auto &mo = res->first;
-    // Check if the provided address is between start and end of the object
-    // [mo->address, mo->address + mo->size) or the object is a 0-sized object.
-    if ((mo->size==0 && address==mo->address) ||
-        (address - mo->address < mo->size)) {
+    if (checkResolvedObject(address, res->first)) {
       result.first = res->first;
       result.second = res->second.get();
       return true;
@@ -96,7 +109,7 @@ bool AddressSpace::resolveOne(ExecutionState &state,
 
     if (res) {
       const MemoryObject *mo = res->first;
-      if (example - mo->address < mo->size) {
+      if (checkResolvedObject(example, mo)) {
         result.first = res->first;
         result.second = res->second.get();
         success = true;
@@ -306,8 +319,12 @@ void AddressSpace::copyOutConcretes() {
       const auto &os = it->second;
       auto address = reinterpret_cast<std::uint8_t*>(mo->address);
 
-      if (!os->readOnly)
-        memcpy(address, os->concreteStore, mo->size);
+      /* TODO: validate */
+      //assert(mo->hasFixedSize());
+      if (!os->readOnly) {
+        //memcpy(address, os->concreteStore, mo->getFixedSize());
+        memcpy(address, os->concreteStore, mo->capacity);
+      }
     }
   }
 }
@@ -329,13 +346,17 @@ bool AddressSpace::copyInConcretes() {
 
 bool AddressSpace::copyInConcrete(const MemoryObject *mo, const ObjectState *os,
                                   uint64_t src_address) {
+  /* TODO: validate */
+  //assert(mo->hasFixedSize());
   auto address = reinterpret_cast<std::uint8_t*>(src_address);
-  if (memcmp(address, os->concreteStore, mo->size) != 0) {
+  //if (memcmp(address, os->concreteStore, mo->getFixedSize()) != 0) {
+  if (memcmp(address, os->concreteStore, mo->capacity) != 0) {
     if (os->readOnly) {
       return false;
     } else {
       ObjectState *wos = getWriteable(mo, os);
-      memcpy(wos->concreteStore, address, mo->size);
+      //memcpy(wos->concreteStore, address, mo->getFixedSize());
+      memcpy(wos->concreteStore, address, mo->capacity);
     }
   }
   return true;
